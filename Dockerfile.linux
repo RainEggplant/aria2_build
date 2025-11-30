@@ -1,0 +1,101 @@
+# Dockerfile to build aria2 Linux binary using ubuntu
+#
+# $ sudo docker build -t aria2-linux -f Dockerfile.linux .
+#
+# After successful build, binary is located at
+# /aria2/src/aria2c.  You can copy the binary using following
+# commands:
+#
+# $ id=$(sudo docker create aria2-linux)
+# $ sudo docker cp $id:/aria2/src/aria2c <dest>
+# $ sudo docker rm -v $id
+#
+
+FROM ubuntu:20.04
+
+MAINTAINER Tatsuhiro Tsujikawa
+
+ENV DEBIAN_FRONTEND="noninteractive"
+
+# Install build tools and dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        make binutils autoconf automake autotools-dev libtool \
+        patch ca-certificates \
+        pkg-config git curl dpkg-dev g++ \
+        autopoint libcppunit-dev libxml2-dev libgcrypt20-dev lzip \
+        libssl-dev zlib1g-dev
+
+# We install dependencies manually to match versions in Dockerfile.mingw
+# or use system versions where appropriate. 
+# Here we follow the manual build approach for core deps to ensure consistency.
+
+RUN curl -L -O https://ftp.gnu.org/gnu/gmp/gmp-6.2.1.tar.lz && \
+    curl -L -O https://github.com/libexpat/libexpat/releases/download/R_2_5_0/expat-2.5.0.tar.bz2 && \
+    curl -L -O https://www.sqlite.org/2023/sqlite-autoconf-3410200.tar.gz && \
+    curl -L -O https://github.com/c-ares/c-ares/releases/download/v1.33.1/c-ares-1.33.1.tar.gz && \
+    curl -L -O https://www.libssh2.org/download/libssh2-1.10.0.tar.gz
+
+RUN tar xf gmp-6.2.1.tar.lz && \
+    cd gmp-6.2.1 && \
+    ./configure \
+        --disable-shared \
+        --enable-static \
+        --enable-fat \
+        CFLAGS="-mtune=generic -O2 -g0" && \
+    make install
+
+RUN tar xf expat-2.5.0.tar.bz2 && \
+    cd expat-2.5.0 && \
+    ./configure \
+        --disable-shared \
+        --enable-static && \
+    make install
+
+RUN tar xf sqlite-autoconf-3410200.tar.gz && \
+    cd sqlite-autoconf-3410200 && \
+    ./configure \
+        --disable-shared \
+        --enable-static && \
+    make install
+
+# Using system zlib (zlib1g-dev) is usually fine, but to match:
+# Dockerfile.mingw downloads zlib-1.3.1. We can do the same.
+RUN curl -L -O http://zlib.net/zlib-1.3.1.tar.gz && \
+    tar xf zlib-1.3.1.tar.gz && \
+    cd zlib-1.3.1 && \
+    ./configure \
+        --static && \
+    make install
+
+RUN tar xf c-ares-1.33.1.tar.gz && \
+    cd c-ares-1.33.1 && \
+    ./configure \
+        --disable-shared \
+        --enable-static \
+        --without-random && \
+    make install
+
+RUN tar xf libssh2-1.10.0.tar.gz && \
+    cd libssh2-1.10.0 && \
+    ./configure \
+        --disable-shared \
+        --enable-static && \
+    make install
+
+# Build aria2
+# We rely on the git clone as in the original Dockerfile, but ideally we would COPY patch.diff
+# to support local builds. However, to keep behavior consistent with Dockerfile.mingw, we clone.
+# We modify the patch application to use the cloned repo.
+
+ADD https://api.github.com/repos/aria2/aria2/git/refs/heads/master version.json
+RUN git clone https://github.com/aria2/aria2 && \
+    git clone https://github.com/qy527145/aria2_build && \
+    cd aria2 && patch -p1 < ../aria2_build/patch.diff && \
+    autoreconf -i && \
+    ./configure \
+        --with-ca-bundle='/etc/ssl/certs/ca-certificates.crt' \
+        ARIA2_STATIC=yes && \
+    make && \
+    strip src/aria2c
+

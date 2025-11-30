@@ -1,22 +1,38 @@
-name: Build Aria For Windows
+name: Build Aria2
 
 on: workflow_dispatch
-  
 
 jobs:
-  build:
-
+  build-windows:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v3
-    - name: Create docker image and build
-      run: docker build -f Dockerfile.mingw -t a2w:x64 .
-    - name: Copy Exe-file
-      run: 
-        docker run -d --name cpa2w a2w:x64 /bin/bash && docker cp cpa2w:/aria2/src/aria2c.exe .
-    - name: Upload file
-      uses: actions/upload-artifact@master
+    - name: Build Windows Docker image
+      run: docker build -f Dockerfile.mingw -t aria2-mingw .
+    - name: Extract Windows binary
+      run: |
+        id=$(docker create aria2-mingw)
+        docker cp $id:/aria2/src/aria2c.exe .
+        docker rm -v $id
+    - name: Upload Windows binary
+      uses: actions/upload-artifact@v3
       with:
-        name: aria
+        name: aria2-windows
         path: ./aria2c.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build Linux Docker image
+      run: docker build -f Dockerfile.linux -t aria2-linux .
+    - name: Extract Linux binary
+      run: |
+        id=$(docker create aria2-linux)
+        docker cp $id:/aria2/src/aria2c .
+        docker rm -v $id
+    - name: Upload Linux binary
+      uses: actions/upload-artifact@v3
+      with:
+        name: aria2-linux
+        path: ./aria2c
